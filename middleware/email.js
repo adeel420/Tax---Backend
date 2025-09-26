@@ -7,7 +7,7 @@ const transporter = require("./config");
 const sendVerificationCode = async (email, verificationCode) => {
   try {
     const response = await transporter.sendMail({
-      from: '"EduManager 👻"', // sender address
+      from: '"Eliaselitaxservices"', // sender address
       to: email, // list of receivers
       subject: "Verify your Email", // Subject line
       text: "Verify your Email", // plain text body
@@ -25,9 +25,9 @@ const sendVerificationCode = async (email, verificationCode) => {
 const welcomeCode = async (email, name) => {
   try {
     const response = await transporter.sendMail({
-      from: '"EduManager 👻"',
+      from: '"Eliaselitaxservices"',
       to: email,
-      subject: "Welcome to EduManager",
+      subject: "Welcome to Eliaselitaxservices",
       text: `Welcome, ${name}!`,
       html: Welcome_Email_Template.replace("{name}", name),
     });
