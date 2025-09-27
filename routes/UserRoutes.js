@@ -165,7 +165,9 @@ router.get("/login-data", jwtAuthMiddleware, async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: "User not found" });
     }
-    res.status(200).json({ email: user.email, name: user.name });
+    res
+      .status(200)
+      .json({ email: user.email, name: user.name, role: user.role });
   } catch (err) {
     console.error("Login Data Error:", err);
     res.status(500).json({ error: "Internal server error" });
