@@ -8,11 +8,7 @@ const passport = require("./middleware/auth");
 const cors = require("cors");
 
 // Packages
-app.use(
-  cors({
-    origin: "*",
-  })
-);
+app.use(cors());
 const PORT = process.env.PORT || 8080;
 app.use(bodyParser.json());
 app.use(passport.initialize());
