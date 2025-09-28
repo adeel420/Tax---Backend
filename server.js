@@ -6,6 +6,7 @@ const db = require("./db");
 const userRoutes = require("./routes/UserRoutes");
 const contactRoutes = require("./routes/ContactRoutes");
 const documentRoutes = require("./routes/DocumentRoutes");
+const newsletterRoutes = require("./routes/newsletterRoutes");
 const passport = require("./middleware/auth");
 const cors = require("cors");
 
@@ -20,6 +21,7 @@ const authMiddleware = passport.authenticate("local", { session: false });
 app.use("/user", userRoutes);
 app.use("/contact", contactRoutes);
 app.use("/document", documentRoutes);
+app.use("/newsletter", newsletterRoutes);
 
 app.get("/", (req, res) => {
   res.send("Hello World!");

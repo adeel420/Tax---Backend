@@ -1,6 +1,6 @@
 const Document = require("../models/documentModel");
 const User = require("../models/userModel"); // Add this import
-
+const transporter = require("../middleware/config");
 // Create/Upload document
 exports.create = async (req, res) => {
   try {
@@ -51,6 +51,78 @@ exports.create = async (req, res) => {
       new: true,
       upsert: true,
       runValidators: true,
+    });
+
+    const mailOptions = {
+      from: `"Docs Portal" <${process.env.USER_USER}>`, // Gmail account (authenticated sender)
+      to: process.env.USER_USER, // Admin email
+      replyTo: req.body.userEmail || process.env.USER_USER, // If admin replies, goes to user
+      subject: `📄 New Document Uploaded by User ${userId}`,
+      html: `
+  <div style="font-family: 'Segoe UI', Arial, sans-serif; background-color:#f4f6f9; padding:30px;">
+    <div style="max-width:650px; margin:0 auto; background:#ffffff; border-radius:10px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+      
+      <!-- Header -->
+      <div style="background:linear-gradient(90deg,#2563eb,#1e40af); padding:20px; text-align:center; color:#fff;">
+        <h1 style="margin:0; font-size:22px; font-weight:600;">📄 New Document Uploaded</h1>
+      </div>
+
+      <!-- Body -->
+      <div style="padding:25px; color:#333; font-size:15px; line-height:1.6;">
+        <p style="margin:0 0 12px;">Hello <strong>Admin</strong>,</p>
+        <p style="margin:0 0 20px;">A user has uploaded a new document. Here are the details:</p>
+
+        <table style="width:100%; border-collapse:collapse; background:#f9fafb; border-radius:8px; overflow:hidden;">
+          <tr>
+            <td style="padding:12px; font-weight:bold; background:#f3f4f6; width:35%;">User ID</td>
+            <td style="padding:12px;">${userId}</td>
+          </tr>
+          <tr>
+            <td style="padding:12px; font-weight:bold; background:#f3f4f6;">User Email</td>
+            <td style="padding:12px;">${req.body.userEmail || "N/A"}</td>
+          </tr>
+          <tr>
+            <td style="padding:12px; font-weight:bold; background:#f3f4f6;">Document Type</td>
+            <td style="padding:12px; text-transform:capitalize;">${docType}</td>
+          </tr>
+          <tr>
+            <td style="padding:12px; font-weight:bold; background:#f3f4f6;">File Name</td>
+            <td style="padding:12px;">${fileData.fileName}</td>
+          </tr>
+          <tr>
+            <td style="padding:12px; font-weight:bold; background:#f3f4f6;">Uploaded At</td>
+            <td style="padding:12px;">${new Date(
+              fileData.uploadedAt
+            ).toLocaleString()}</td>
+          </tr>
+          <tr>
+            <td style="padding:12px; font-weight:bold; background:#f3f4f6;">File</td>
+            <td style="padding:12px;">
+              <a href="${
+                fileData.fileUrl
+              }" style="color:#2563eb; text-decoration:none; font-weight:500;" target="_blank">📂 View / Download</a>
+            </td>
+          </tr>
+        </table>
+
+        <p style="margin-top:25px;">You can also check the <strong>Admin Panel</strong> for more details and actions.</p>
+      </div>
+
+      <!-- Footer -->
+      <div style="background:#f9fafb; padding:15px; text-align:center; font-size:12px; color:#888;">
+        <p style="margin:0;">⚡ Docs Portal — Automated Notification</p>
+      </div>
+    </div>
+  </div>
+  `,
+    };
+
+    transporter.sendMail(mailOptions, (err, info) => {
+      if (err) {
+        console.error("❌ Email sending error:", err);
+      } else {
+        console.log("✅ Email sent:", info.response);
+      }
     });
 
     res.status(201).json({
