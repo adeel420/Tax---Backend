@@ -1,13 +1,17 @@
-// models/NewsletterSubscriber.js
 const mongoose = require("mongoose");
 
 const newsletterSubscriberSchema = new mongoose.Schema({
   email: {
     type: String,
     required: true,
-    unique: true, // prevent duplicate subscriptions
+    unique: true,
     lowercase: true,
     trim: true,
+  },
+  status: {
+    type: String,
+    enum: ["Active", "Unsubscribed"],
+    default: "Active", // ✅ default when someone subscribes
   },
   subscribedAt: {
     type: Date,

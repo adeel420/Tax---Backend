@@ -90,7 +90,7 @@ exports.sendNewsletter = async (req, res) => {
 exports.getAllSubscribers = async (req, res) => {
   try {
     const subscribers = await NewsletterSubscriber.find().sort({
-      createdAt: -1,
+      subscribedAt: -1, // ✅ fix: match schema
     });
 
     res.json({
@@ -104,5 +104,41 @@ exports.getAllSubscribers = async (req, res) => {
       success: false,
       message: "Failed to fetch subscribers",
     });
+  }
+};
+
+exports.updateSubscriberStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!["Active", "Unsubscribed"].includes(status)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid status" });
+    }
+
+    const subscriber = await NewsletterSubscriber.findByIdAndUpdate(
+      id,
+      { status },
+      { new: true }
+    );
+
+    if (!subscriber) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Subscriber not found" });
+    }
+
+    res.json({
+      success: true,
+      message: `Subscriber status updated to ${status}`,
+      subscriber,
+    });
+  } catch (err) {
+    console.error("❌ Update Subscriber error:", err);
+    res
+      .status(500)
+      .json({ success: false, message: "Failed to update subscriber" });
   }
 };
