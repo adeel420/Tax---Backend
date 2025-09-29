@@ -7,6 +7,7 @@ const userRoutes = require("./routes/UserRoutes");
 const contactRoutes = require("./routes/ContactRoutes");
 const documentRoutes = require("./routes/DocumentRoutes");
 const newsletterRoutes = require("./routes/newsletterRoutes");
+const appointmentRoutes = require("./routes/appointmentRoutes");
 const passport = require("./middleware/auth");
 const cors = require("cors");
 
@@ -22,6 +23,7 @@ app.use("/user", userRoutes);
 app.use("/contact", contactRoutes);
 app.use("/document", documentRoutes);
 app.use("/newsletter", newsletterRoutes);
+app.use("/appointment", appointmentRoutes);
 
 app.get("/", (req, res) => {
   res.send("Hello World!");
