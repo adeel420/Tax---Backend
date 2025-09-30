@@ -1,6 +1,160 @@
 const Document = require("../models/documentModel");
-const User = require("../models/userModel"); // Add this import
+const User = require("../models/userModel");
 const transporter = require("../middleware/config");
+
+// Batch notification system
+const pendingNotifications = new Map(); // userId -> array of uploads
+const notificationTimers = new Map(); // userId -> timer
+
+const NOTIFICATION_DELAY = 3000; // 3 seconds - wait time before sending email
+
+// Function to send batch email
+const sendBatchEmail = async (userId, uploads) => {
+  try {
+    // Get user info
+    let userEmail = "N/A";
+    try {
+      const user = await User.findById(userId).select("email");
+      if (user) userEmail = user.email;
+    } catch (err) {
+      console.log("Could not fetch user email");
+    }
+
+    const mailOptions = {
+      from: `"Docs Portal" <${process.env.USER_USER}>`,
+      to: process.env.USER_USER,
+      replyTo: userEmail !== "N/A" ? userEmail : process.env.USER_USER,
+      subject: `📄 ${uploads.length} Document${
+        uploads.length > 1 ? "s" : ""
+      } Uploaded by User ${userId}`,
+      html: `
+  <div style="font-family: 'Segoe UI', Arial, sans-serif; background-color:#f4f6f9; padding:30px;">
+    <div style="max-width:650px; margin:0 auto; background:#ffffff; border-radius:10px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.08);">
+      
+      <!-- Header -->
+      <div style="background:linear-gradient(90deg,#2563eb,#1e40af); padding:20px; text-align:center; color:#fff;">
+        <h1 style="margin:0; font-size:22px; font-weight:600;">📄 ${
+          uploads.length
+        } Document${uploads.length > 1 ? "s" : ""} Uploaded</h1>
+      </div>
+
+      <!-- Body -->
+      <div style="padding:25px; color:#333; font-size:15px; line-height:1.6;">
+        <p style="margin:0 0 12px;">Hello <strong>Admin</strong>,</p>
+        <p style="margin:0 0 20px;">User has uploaded <strong>${
+          uploads.length
+        } document${
+        uploads.length > 1 ? "s" : ""
+      }</strong>. Here are the details:</p>
+
+        <!-- User Info -->
+        <div style="background:#f9fafb; padding:15px; border-radius:8px; margin-bottom:20px;">
+          <table style="width:100%; border-collapse:collapse;">
+            <tr>
+              <td style="padding:8px; font-weight:bold; width:35%;">User ID</td>
+              <td style="padding:8px;">${userId}</td>
+            </tr>
+            <tr>
+              <td style="padding:8px; font-weight:bold;">User Email</td>
+              <td style="padding:8px;">${userEmail}</td>
+            </tr>
+          </table>
+        </div>
+
+        <!-- Documents List -->
+        <h3 style="margin:20px 0 15px; color:#1e40af; font-size:16px;">Uploaded Documents:</h3>
+        
+        ${uploads
+          .map(
+            (upload, idx) => `
+          <div style="background:#f9fafb; padding:15px; border-radius:8px; margin-bottom:12px; border-left:4px solid #2563eb;">
+            <div style="font-weight:bold; color:#1e40af; margin-bottom:8px;">Document ${
+              idx + 1
+            }</div>
+            <table style="width:100%; border-collapse:collapse; font-size:14px;">
+              <tr>
+                <td style="padding:5px; font-weight:500; width:35%;">Type</td>
+                <td style="padding:5px; text-transform:capitalize;">${
+                  upload.docType
+                }</td>
+              </tr>
+              <tr>
+                <td style="padding:5px; font-weight:500;">File Name</td>
+                <td style="padding:5px;">${upload.fileName}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px; font-weight:500;">Uploaded At</td>
+                <td style="padding:5px;">${new Date(
+                  upload.uploadedAt
+                ).toLocaleString()}</td>
+              </tr>
+              <tr>
+                <td style="padding:5px; font-weight:500;">File</td>
+                <td style="padding:5px;">
+                  <a href="${
+                    upload.fileUrl
+                  }" style="color:#2563eb; text-decoration:none; font-weight:500;" target="_blank">📂 View / Download</a>
+                </td>
+              </tr>
+            </table>
+          </div>
+        `
+          )
+          .join("")}
+
+        <p style="margin-top:25px;">You can check the <strong>Admin Panel</strong> for more details and actions.</p>
+      </div>
+
+      <!-- Footer -->
+      <div style="background:#f9fafb; padding:15px; text-align:center; font-size:12px; color:#888;">
+        <p style="margin:0;">⚡ Docs Portal — Automated Notification</p>
+      </div>
+    </div>
+  </div>
+  `,
+    };
+
+    transporter.sendMail(mailOptions, (err, info) => {
+      if (err) {
+        console.error("❌ Email sending error:", err);
+      } else {
+        console.log(
+          `✅ Batch email sent for ${uploads.length} documents:`,
+          info.response
+        );
+      }
+    });
+  } catch (err) {
+    console.error("❌ Error sending batch email:", err);
+  }
+};
+
+// Function to queue notification
+const queueNotification = (userId, uploadData) => {
+  // Add to pending notifications
+  if (!pendingNotifications.has(userId)) {
+    pendingNotifications.set(userId, []);
+  }
+  pendingNotifications.get(userId).push(uploadData);
+
+  // Clear existing timer if any
+  if (notificationTimers.has(userId)) {
+    clearTimeout(notificationTimers.get(userId));
+  }
+
+  // Set new timer
+  const timer = setTimeout(() => {
+    const uploads = pendingNotifications.get(userId);
+    if (uploads && uploads.length > 0) {
+      sendBatchEmail(userId, uploads);
+      pendingNotifications.delete(userId);
+      notificationTimers.delete(userId);
+    }
+  }, NOTIFICATION_DELAY);
+
+  notificationTimers.set(userId, timer);
+};
+
 // Create/Upload document
 exports.create = async (req, res) => {
   try {
@@ -53,76 +207,12 @@ exports.create = async (req, res) => {
       runValidators: true,
     });
 
-    const mailOptions = {
-      from: `"Docs Portal" <${process.env.USER_USER}>`, // Gmail account (authenticated sender)
-      to: process.env.USER_USER, // Admin email
-      replyTo: req.body.userEmail || process.env.USER_USER, // If admin replies, goes to user
-      subject: `📄 New Document Uploaded by User ${userId}`,
-      html: `
-  <div style="font-family: 'Segoe UI', Arial, sans-serif; background-color:#f4f6f9; padding:30px;">
-    <div style="max-width:650px; margin:0 auto; background:#ffffff; border-radius:10px; overflow:hidden; box-shadow:0 4px 12px rgba(0,0,0,0.08);">
-      
-      <!-- Header -->
-      <div style="background:linear-gradient(90deg,#2563eb,#1e40af); padding:20px; text-align:center; color:#fff;">
-        <h1 style="margin:0; font-size:22px; font-weight:600;">📄 New Document Uploaded</h1>
-      </div>
-
-      <!-- Body -->
-      <div style="padding:25px; color:#333; font-size:15px; line-height:1.6;">
-        <p style="margin:0 0 12px;">Hello <strong>Admin</strong>,</p>
-        <p style="margin:0 0 20px;">A user has uploaded a new document. Here are the details:</p>
-
-        <table style="width:100%; border-collapse:collapse; background:#f9fafb; border-radius:8px; overflow:hidden;">
-          <tr>
-            <td style="padding:12px; font-weight:bold; background:#f3f4f6; width:35%;">User ID</td>
-            <td style="padding:12px;">${userId}</td>
-          </tr>
-          <tr>
-            <td style="padding:12px; font-weight:bold; background:#f3f4f6;">User Email</td>
-            <td style="padding:12px;">${req.body.userEmail || "N/A"}</td>
-          </tr>
-          <tr>
-            <td style="padding:12px; font-weight:bold; background:#f3f4f6;">Document Type</td>
-            <td style="padding:12px; text-transform:capitalize;">${docType}</td>
-          </tr>
-          <tr>
-            <td style="padding:12px; font-weight:bold; background:#f3f4f6;">File Name</td>
-            <td style="padding:12px;">${fileData.fileName}</td>
-          </tr>
-          <tr>
-            <td style="padding:12px; font-weight:bold; background:#f3f4f6;">Uploaded At</td>
-            <td style="padding:12px;">${new Date(
-              fileData.uploadedAt
-            ).toLocaleString()}</td>
-          </tr>
-          <tr>
-            <td style="padding:12px; font-weight:bold; background:#f3f4f6;">File</td>
-            <td style="padding:12px;">
-              <a href="${
-                fileData.fileUrl
-              }" style="color:#2563eb; text-decoration:none; font-weight:500;" target="_blank">📂 View / Download</a>
-            </td>
-          </tr>
-        </table>
-
-        <p style="margin-top:25px;">You can also check the <strong>Admin Panel</strong> for more details and actions.</p>
-      </div>
-
-      <!-- Footer -->
-      <div style="background:#f9fafb; padding:15px; text-align:center; font-size:12px; color:#888;">
-        <p style="margin:0;">⚡ Docs Portal — Automated Notification</p>
-      </div>
-    </div>
-  </div>
-  `,
-    };
-
-    transporter.sendMail(mailOptions, (err, info) => {
-      if (err) {
-        console.error("❌ Email sending error:", err);
-      } else {
-        console.log("✅ Email sent:", info.response);
-      }
+    // Queue notification instead of sending immediately
+    queueNotification(userId, {
+      docType,
+      fileName: fileData.fileName,
+      fileUrl: fileData.fileUrl,
+      uploadedAt: fileData.uploadedAt,
     });
 
     res.status(201).json({
@@ -222,7 +312,6 @@ exports.deleteDocument = async (req, res) => {
         });
       }
 
-      // First get the document to remove the specific item
       const doc = await Document.findOne({ userId });
       if (!doc || !doc.misc || !doc.misc[index]) {
         return res.status(404).json({
@@ -231,7 +320,6 @@ exports.deleteDocument = async (req, res) => {
         });
       }
 
-      // Remove the item at the specified index
       doc.misc.splice(index, 1);
       await doc.save();
 
@@ -241,7 +329,6 @@ exports.deleteDocument = async (req, res) => {
         document: doc,
       });
     } else {
-      // For non-misc documents, set the field to null
       update = { $unset: { [docType]: 1 } };
 
       const updatedDoc = await Document.findOneAndUpdate({ userId }, update, {
@@ -273,19 +360,18 @@ exports.deleteDocument = async (req, res) => {
 // Get all documents with user info (admin function)
 exports.getAllDocuments = async (req, res) => {
   try {
-    // Get all documents with user details using aggregation
     const documentsWithUserInfo = await Document.aggregate([
       {
         $lookup: {
-          from: "users", // Make sure this matches your User collection name
+          from: "users",
           let: { userIdString: "$userId" },
           pipeline: [
             {
               $match: {
                 $expr: {
                   $or: [
-                    { $eq: ["$_id", { $toObjectId: "$$userIdString" }] }, // If userId is stored as string but _id is ObjectId
-                    { $eq: [{ $toString: "$_id" }, "$$userIdString"] }, // If both need string comparison
+                    { $eq: ["$_id", { $toObjectId: "$$userIdString" }] },
+                    { $eq: [{ $toString: "$_id" }, "$$userIdString"] },
                   ],
                 },
               },
@@ -297,7 +383,7 @@ exports.getAllDocuments = async (req, res) => {
       {
         $unwind: {
           path: "$userInfo",
-          preserveNullAndEmptyArrays: true, // Keep documents even if user not found
+          preserveNullAndEmptyArrays: true,
         },
       },
       {
@@ -316,7 +402,7 @@ exports.getAllDocuments = async (req, res) => {
         },
       },
       {
-        $sort: { updatedAt: -1 }, // Sort by most recently updated
+        $sort: { updatedAt: -1 },
       },
     ]);
 
@@ -334,36 +420,31 @@ exports.getAllDocuments = async (req, res) => {
   }
 };
 
-// Alternative simpler approach if aggregation doesn't work
+// Alternative simpler approach
 exports.getAllDocumentsSimple = async (req, res) => {
   try {
     const documents = await Document.find({}).sort({ updatedAt: -1 });
 
-    // Get user info for each document
     const documentsWithUserInfo = await Promise.all(
       documents.map(async (doc) => {
         try {
-          // Try to find user by converting userId to ObjectId or using as string
           let user = null;
 
-          // First try: userId as ObjectId
           try {
             const ObjectId = require("mongoose").Types.ObjectId;
             if (ObjectId.isValid(doc.userId)) {
               user = await User.findById(doc.userId).select("name email");
             }
           } catch (e) {
-            // If ObjectId conversion fails, continue
+            // Continue
           }
 
-          // Second try: userId as string in a custom field
           if (!user) {
             user = await User.findOne({ userId: doc.userId }).select(
               "name email"
             );
           }
 
-          // Third try: any other user identifier field you might have
           if (!user) {
             user = await User.findOne({ _id: doc.userId }).select("name email");
           }
