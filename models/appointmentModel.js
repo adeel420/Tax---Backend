@@ -25,7 +25,7 @@ const appointmentSchema = new mongoose.Schema({
     type: Date,
     required: true
   },
-  time: {
+  timeSlot: {
     type: String,
     required: true
   },
@@ -37,7 +37,21 @@ const appointmentSchema = new mongoose.Schema({
     type: String,
     enum: ['pending', 'confirmed', 'cancelled', 'completed'],
     default: 'pending'
-  }
+  },
+  meetingLink: {
+    type: String
+  },
+  meetingId: {
+    type: String
+  },
+  actualMeetingLink: {
+    type: String
+  },
+  reminderSent: {
+    type: Boolean,
+    default: false
+  },
+
 }, {
   timestamps: true
 });
