@@ -1,107 +1,93 @@
 const Appointment = require("../models/appointmentModel");
-const { sendAppointmentConfirmation, sendAppointmentCancellation } = require("../middleware/appointmentEmail");
-const nodemailer = require("nodemailer");
+const { sendConfirmationEmail, sendCancellationEmail } = require("../middleware/statusEmailService");
+const { sendAdminNotification } = require("../middleware/adminNotificationService");
+const { generateSimpleMeetingLink } = require("../services/simpleMeetService");
+const { sendMeetingLink } = require("../middleware/meetingEmailService");
 
-const transporter = nodemailer.createTransport({
-  service: "gmail",
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS,
-  },
-});
+// Get available slots for a date
+const getAvailableSlots = async (req, res) => {
+  try {
+    const { date } = req.params;
+    const selectedDate = new Date(date);
+    const dayOfWeek = selectedDate.getDay(); // 0 = Sunday, 6 = Saturday
+    
+    let allSlots = [];
+    
+    if (dayOfWeek >= 1 && dayOfWeek <= 5) {
+      // Monday to Friday: 9 AM - 5 PM (last slot 4-5 PM)
+      allSlots = [
+        "09:00", "10:00", "11:00", "12:00", 
+        "13:00", "14:00", "15:00", "16:00"
+      ];
+    } else if (dayOfWeek === 6) {
+      // Saturday: 10 AM - 3 PM (last slot 2-3 PM)
+      allSlots = [
+        "10:00", "11:00", "12:00", "13:00", "14:00"
+      ];
+    } else {
+      // Sunday: Closed
+      allSlots = [];
+    }
 
-// Create new appointment
+    const bookedSlots = await Appointment.find({
+      date: selectedDate,
+      status: { $ne: 'cancelled' }
+    }).select('timeSlot');
+
+    const bookedTimes = bookedSlots.map(apt => apt.timeSlot);
+    const availableSlots = allSlots.filter(slot => !bookedTimes.includes(slot));
+
+    res.json({ success: true, availableSlots });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// Create appointment
 const createAppointment = async (req, res) => {
   try {
-    const { name, email, phone, service, date, time, message } = req.body;
+    const { name, email, phone, service, date, timeSlot, message } = req.body;
 
-    // Check if appointment slot is already taken
+    // Check if slot is available
     const existingAppointment = await Appointment.findOne({
       date: new Date(date),
-      time: time,
+      timeSlot,
       status: { $ne: 'cancelled' }
     });
 
     if (existingAppointment) {
       return res.status(400).json({
         success: false,
-        message: "This time slot is already booked. Please choose another time."
+        message: "This time slot is already booked"
       });
     }
 
     const appointment = new Appointment({
-      name,
-      email,
-      phone,
-      service,
-      date: new Date(date),
-      time,
-      message
+      name, email, phone, service, date: new Date(date), timeSlot, message
     });
 
     await appointment.save();
 
-    // Send immediate booking confirmation
-    const bookingConfirmation = {
-      from: process.env.EMAIL_USER,
-      to: appointment.email,
-      subject: "Appointment Booking Received - Eliaselitaxservices",
-      html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <h2 style="color: #2563eb;">Appointment Request Received!</h2>
-          <p>Dear ${appointment.name},</p>
-          <p>Thank you for booking an appointment. We have received your request:</p>
-          
-          <div style="background: #f0f9ff; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #2563eb;">
-            <p><strong>Service:</strong> ${appointment.service}</p>
-            <p><strong>Date:</strong> ${new Date(appointment.date).toLocaleDateString()}</p>
-            <p><strong>Time:</strong> ${appointment.time}</p>
-            <p><strong>Status:</strong> Pending Review</p>
-          </div>
-          
-          <p>Our team will review your request and confirm within 24 hours. You'll receive another email once confirmed.</p>
-          
-          <p>Contact us: 📞 (555) 123-4567 | 📧 info@eliaselitaxservices.com</p>
-          
-          <p>Best regards,<br>Eliaselitaxservices Team</p>
-        </div>
-      `
-    };
-
+    // Send notification to admin
     try {
-      await transporter.sendMail(bookingConfirmation);
-    } catch (error) {
-      console.error("Error sending booking confirmation:", error);
+      await sendAdminNotification(appointment);
+    } catch (emailError) {
+      console.error("Admin notification failed:", emailError);
     }
 
-    res.status(201).json({
-      success: true,
-      message: "Appointment booked successfully!",
-      appointment
-    });
+    res.status(201).json({ success: true, appointment });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to book appointment",
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
 // Get all appointments
 const getAllAppointments = async (req, res) => {
   try {
-    const appointments = await Appointment.find().sort({ date: 1, time: 1 });
-    res.status(200).json({
-      success: true,
-      appointments
-    });
+    const appointments = await Appointment.find().sort({ createdAt: -1, date: 1, timeSlot: 1 });
+    res.json({ success: true, appointments });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to fetch appointments",
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
@@ -112,41 +98,65 @@ const updateAppointmentStatus = async (req, res) => {
     const { status } = req.body;
 
     const appointment = await Appointment.findByIdAndUpdate(
-      id,
-      { status },
-      { new: true }
+      id, { status }, { new: true }
     );
 
     if (!appointment) {
-      return res.status(404).json({
-        success: false,
-        message: "Appointment not found"
-      });
+      return res.status(404).json({ success: false, message: "Appointment not found" });
     }
 
-    // Send email notifications
-    if (status === 'confirmed') {
-      await sendAppointmentConfirmation(appointment);
-    } else if (status === 'cancelled') {
-      await sendAppointmentCancellation(appointment);
+    // Handle Google Meet integration and emails based on status
+    try {
+      if (status === 'confirmed' && !appointment.meetingLink) {
+        console.log('Appointment confirmed:', appointment._id);
+        appointment.meetingLink = 'Meeting link will be sent separately';
+        await appointment.save();
+        await sendConfirmationEmail(appointment);
+      } else if (status === 'cancelled') {
+        await sendCancellationEmail(appointment);
+      }
+    } catch (error) {
+      console.error("Status update error:", error);
     }
 
-    res.status(200).json({
-      success: true,
-      message: "Appointment status updated",
-      appointment
-    });
+    res.json({ success: true, appointment });
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Failed to update appointment",
-      error: error.message
-    });
+    res.status(500).json({ success: false, error: error.message });
+  }
+};
+
+// Send meeting link to user
+const sendMeetingLinkToUser = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { meetingLink } = req.body;
+
+    if (!meetingLink) {
+      return res.status(400).json({ success: false, message: "Meeting link is required" });
+    }
+
+    const appointment = await Appointment.findById(id);
+    if (!appointment) {
+      return res.status(404).json({ success: false, message: "Appointment not found" });
+    }
+
+    // Update appointment with actual meeting link
+    appointment.actualMeetingLink = meetingLink;
+    await appointment.save();
+
+    // Send meeting link to user
+    await sendMeetingLink(appointment, meetingLink);
+
+    res.json({ success: true, message: "Meeting link sent successfully" });
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
   }
 };
 
 module.exports = {
+  getAvailableSlots,
   createAppointment,
   getAllAppointments,
-  updateAppointmentStatus
+  updateAppointmentStatus,
+  sendMeetingLinkToUser
 };
