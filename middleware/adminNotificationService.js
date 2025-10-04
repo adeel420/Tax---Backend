@@ -51,7 +51,7 @@ const sendAdminNotification = async (appointment) => {
             </div>
             
             <p><strong>Action Required:</strong> Please log in to the admin dashboard to confirm or manage this appointment.</p>
-            <a href="http://localhost:3000/admin-dashoard">Login Here</a>
+            <a href="https://www.eliaselitaxservices.com/admin-dashboard">Login Here</a>
           
           <p>The client will receive a confirmation email only after you approve the appointment.</p>
         </div>
