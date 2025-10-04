@@ -11,13 +11,18 @@ const multer = require("multer");
 const { CloudinaryStorage } = require("multer-storage-cloudinary");
 const cloudinary = require("../middleware/cloudinary");
 
-// Cloudinary storage configuration
 const storage = new CloudinaryStorage({
   cloudinary: cloudinary,
-  params: {
-    folder: "tax-documents",
-    allowed_formats: ["jpg", "jpeg", "png", "pdf"],
-    transformation: [{ quality: "auto" }], // Optimize file size
+  params: async (req, file) => {
+    // Determine resource type based on file
+    const isPdf = file.mimetype === "application/pdf";
+
+    return {
+      folder: "tax-documents",
+      resource_type: isPdf ? "raw" : "image", // CRITICAL: PDFs must use "raw"
+      public_id: `${Date.now()} -${file.originalname.replace(/\.[^/.]+$/, "")}`,
+      allowed_formats: ["jpg", "jpeg", "png", "pdf"],
+    };
   },
 });
 
